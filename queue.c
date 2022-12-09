@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #define TRUE  1
 #define FALSE 0
@@ -8,6 +9,7 @@ typedef struct {
 	int ID;
 	int type;
 	// you might want to add variables here!
+	bool assembly_done, painting_done, package_done, delivery_done, QA_done;
 } Task;
 
 /* a link in the queue, holds the data and point to the next Node */
