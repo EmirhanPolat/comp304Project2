@@ -32,7 +32,6 @@ Queue *QAQue;
 Queue *deliveryQue;
 
 pthread_mutex_t lock; //Basic lock for all the queues 
-pthread_mutex_t lock_assembly, lock_painting, lock_package, lock_QA, lock_delivery; //every department has their own lock 
 
 //pthread sleeper function
 int pthread_sleep (int seconds)
@@ -108,24 +107,25 @@ int main(int argc,char **argv){
 	pthread_t santaThread;
 	pthread_t control_thread;
 	int sim = 0;
-	while(sim < simulationTime) {
+	while(sim < simulationTime){
+		
 		pthread_create(&elfAThread, NULL, ElfA, NULL);
 		pthread_create(&elfBThread, NULL, ElfB, NULL);
 		pthread_create(&santaThread, NULL, Santa, NULL);
 		pthread_create(&control_thread, NULL, ControlThread, NULL);
-
+		
 		pthread_join(elfAThread, NULL);	
 		pthread_join(elfBThread, NULL);	
 		pthread_join(santaThread, NULL);	
-		pthread_join(control_thread, NULL); 
-	
-			sim++;
+		pthread_join(control_thread, NULL); 	
+		
+		sim++;
+			
 	}
 	return 0;
 }
 
 void* ElfA(void *arg){
-	while(1){
 		Task package_task; //Packaging is prioritized, thus, package if any packagingTask exits in the packageQue
 		pthread_mutex_lock(&lock); 
 		//critical section start
@@ -174,11 +174,9 @@ void* ElfA(void *arg){
 
 
 
-	}
 }
 
 void* ElfB(void *arg){
-	while(1){
 		Task package_task; //Packaging is prioritized, thus, package if any packagingTask exits in the packageQue
 		pthread_mutex_lock(&lock); 
 		//critical section start
@@ -227,13 +225,11 @@ void* ElfB(void *arg){
 
 
 
-	}
 
 }
 
 // manages Santa's tasks
 void* Santa(void *arg){
-	while(1) {
 		Task delivery_task;
 		pthread_mutex_lock(&lock);
 		if(isEmpty(deliveryQue)){
@@ -264,13 +260,11 @@ void* Santa(void *arg){
 				pthread_mutex_unlock(&lock);
 			}
 		}
-	}	
 }
 
 // the function that controls queues and output
 void* ControlThread(void *arg){
 	int t_id = 1;
-	while(1) {
 		pthread_sleep(1);
 
 		Task task;
@@ -353,6 +347,5 @@ void* ControlThread(void *arg){
 
 		t_id++;
 
-	}
 
 }
