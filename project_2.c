@@ -7,14 +7,6 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#ifdef __APPLE__
-#include <dispatch/dispatch.h>
-typedef dispatch_semaphore_t psem_t;
-#else
-#include <semaphore.h> 
-typedef sem_t psem_t;
-#endif
-
 int simulationTime = 120;    // simulation time
 int seed = 10;               // seed for randomness
 int emergencyFrequency = 30; // frequency of emergency gift requests from New Zealand
@@ -33,7 +25,10 @@ Queue *deliveryQue;
 
 pthread_mutex_t lock; //Basic lock for all the queues 
 pthread_mutex_t lastLock; //Lock to identify who will do the packaging
-int lastAssembled, lastPainted, lastQAed = 0;
+pthread_mutex_t timeLock; //Lock when updating time 
+pthread_mutex_t taskCountLock; //Lock when modifying global variable taskCount
+int lastAssembled, lastPainted, lastQAed = 0; // We dont need lastPackaged and lastDelivered 
+int current_time, task_count = 0; //Current time and current task count
 
 //pthread sleeper function
 int pthread_sleep (int seconds)
@@ -133,28 +128,23 @@ void* ElfA(void *arg){
 			pthread_mutex_unlock(&lock);
 		} 
 		else {
-
 			package_task = Dequeue(packageQue); //If task exist dequeue it 
 			pthread_mutex_unlock(&lock); //Release lock
 
 			pthread_sleep(1); //Do packaging job
 			package_task.package_done = true; //Set packaging field to true of Task 
 			printf("Elf-A -----> PackagingDone = %d\n", package_task.ID);
-
+			
 			pthread_mutex_lock(&lock); //Lock
 			Enqueue(deliveryQue, package_task); //Send the task to deliveryQue
 			pthread_mutex_unlock(&lock); //Release lock
-
-		} //Packaging end
-
-		pthread_mutex_lock(&lock); //Lock
-		if(!isEmpty(packageQue)){ // If package exists
-			pthread_mutex_unlock(&lock); //Release lock after checking and
-			continue; //skip iteration, look for packaging job again
+		} //Packaging End
+		pthread_mutex_lock(&lock); //Check for packageQue again
+		if(!isEmpty(packageQue)) {
+			pthread_mutex_unlock(&lock);
+			continue;
 		}
-		pthread_mutex_unlock(&lock); // Else release lock and look for Painting jobs
-
-
+		pthread_mutex_unlock(&lock);
 		//Painting Task
 		Task painting_task;
 		pthread_mutex_lock(&lock); //lock
@@ -207,11 +197,9 @@ void* ElfB(void *arg){
 		if(isEmpty(packageQue)){ //If queue is empty
 			pthread_mutex_unlock(&lock); //release lock
 		} else {
-
 			package_task = Dequeue(packageQue); // else, dequeue a job 
 			pthread_mutex_unlock(&lock); //then release the lock
 			//critical section end
-
 
 			pthread_sleep(1); //Do packaging
 			package_task.package_done = true;
@@ -221,16 +209,13 @@ void* ElfB(void *arg){
 			pthread_mutex_unlock(&lock);
 
 			printf("Elf-B -----> PackagingDone = %d\n", package_task.ID);
-
-		} //Packaging Task 
-	
-		pthread_mutex_lock(&lock); //Lock
-		if(!isEmpty(packageQue)){ // If package exists
-			pthread_mutex_unlock(&lock); //Release lock after checking and
-			continue; //skip iteration, look for packaging job again
-		}
-		pthread_mutex_unlock(&lock); // Else release lock and look for Assembly jobs
-
+		} //Packaging End 
+		pthread_mutex_lock(&lock); //Check for packageQue again and then go on
+		if(!isEmpty(packageQue)){
+			pthread_mutex_unlock(&lock);
+			continue;
+		}	
+		pthread_mutex_unlock(&lock);
 		//Assembly Task
 		Task assembly_task;
 		pthread_mutex_lock(&lock); //lock
@@ -287,6 +272,7 @@ void* Santa(void *arg){
 			printf("HOHOHO!! Santa deliveryDone: %d\n",delivery_task.ID);
 		} //Delivery job done, BUT need to check 2 conds and may be doing it again
 
+		
 		//This part is needed for Santa to do QA job first when one of the conditions hold
 		pthread_mutex_lock(&lock);
 		if(!isEmpty(deliveryQue) && QAQue->size < 3){ //If qa task is not > 3
@@ -294,6 +280,7 @@ void* Santa(void *arg){
 			continue; //skip iteration, start new one
 		}
 		pthread_mutex_unlock(&lock); // Else release lock and look for QA jobs
+		
 
 		//QA Task part
 		Task QA_task;
@@ -359,8 +346,8 @@ void* ControlThread(void *arg){
 
 			pthread_mutex_lock(&lock);
 			Enqueue(packageQue, task);
-			printf("\t\tNewGIFT-Chocolate with id: %d enqueued to package\n", t_id);	
 			pthread_mutex_unlock(&lock);
+			printf("\t\tNewGIFT-Chocolate with id: %d enqueued to package\n", t_id);	
 
 		} else if(40 <= rand_gift && rand_gift <=59){ //wooden toy + chocolate [40, 60)
 			task.type = 2;
@@ -372,8 +359,8 @@ void* ControlThread(void *arg){
 
 			pthread_mutex_lock(&lock);
 			Enqueue(paintingQue, task);
-			printf("\t\tNewGIFT-Wood_toy gift with id: %d enqueued to paint\n", t_id);	
 			pthread_mutex_unlock(&lock);
+			printf("\t\tNewGIFT-Wood_toy gift with id: %d enqueued to paint\n", t_id);	
 
 
 		} else if(60 <= rand_gift && rand_gift <=79){ //plastic toy + chocolate [60, 80)
@@ -386,8 +373,8 @@ void* ControlThread(void *arg){
 
 			pthread_mutex_lock(&lock);
 			Enqueue(assemblyQue, task);
-			printf("\t\tNewGIFT-Plastic_toy gift with id: %d enqueued to assembly\n", t_id);	
 			pthread_mutex_unlock(&lock);
+			printf("\t\tNewGIFT-Plastic_toy gift with id: %d enqueued to assembly\n", t_id);	
 
 		} else if(80 <= rand_gift && rand_gift <=84){ //GS + wooden toy + chocolate [80,85)
 			task.type = 4;
@@ -400,8 +387,8 @@ void* ControlThread(void *arg){
 			pthread_mutex_lock(&lock);
 			Enqueue(paintingQue, task);
 			Enqueue(QAQue, task);
-			printf("\t\tNewGIFT-GS + wood_toy gift with id: %d enqueued to QA & painting\n", t_id);	
 			pthread_mutex_unlock(&lock);
+			printf("\t\tNewGIFT-GS + wood_toy gift with id: %d enqueued to QA & painting\n", t_id);	
 
 		} else if(85 <= rand_gift && rand_gift <=89){ //GS + plastic toy + chocolate [85, 90)
 			task.type = 5;
@@ -414,8 +401,8 @@ void* ControlThread(void *arg){
 			pthread_mutex_lock(&lock);
 			Enqueue(assemblyQue, task);
 			Enqueue(QAQue, task);
-			printf("\t\tNewGIFT-GS + plastic_toy gift with id: %d enqueued to QA & assembly\n", t_id);	
 			pthread_mutex_unlock(&lock);
+			printf("\t\tNewGIFT-GS + plastic_toy gift with id: %d enqueued to QA & assembly\n", t_id);	
 
 		} else { // Again type 1 gift created [90, 100)
 			task.type = 1;
@@ -427,8 +414,8 @@ void* ControlThread(void *arg){
 
 			pthread_mutex_lock(&lock);
 			Enqueue(packageQue, task);
-			printf("\t\tNewGIFT-Chocolate with id: %d enqueued to package\n", t_id);	
 			pthread_mutex_unlock(&lock);
+			printf("\t\tNewGIFT-Chocolate with id: %d enqueued to package\n", t_id);	
 		}
 
 
