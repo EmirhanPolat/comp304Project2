@@ -32,8 +32,8 @@ Queue *QAQue;
 Queue *deliveryQue;
 
 pthread_mutex_t lock; //Basic lock for all the queues 
-pthread_mutex_t lastLock; //Lock to identify who will do the packaging
-int lastAssembled, lastPainted, lastQAed = 0;
+pthread_mutex_t lastLock; //Lock for last finished job id updates 
+int lastAssembled, lastPainted, lastQAed = 0; //We dont need lastPackaged and delivered  
 
 //pthread sleeper function
 int pthread_sleep (int seconds)
@@ -87,21 +87,21 @@ int main(int argc,char **argv){
 	Task ret = Dequeue(myQ);
 	DestructQueue(myQ);
 	*/
-
-	// your code goes here
-	// you can simulate gift request creation in here, 
-	// but make sure to launch the threads first
-	printf("HellofromPart1\n");
-	//Mutex launch
-	pthread_mutex_init(&lock, NULL);
-	pthread_mutex_init(&lastLock, NULL);
-
+	
 	//Initialize queues
 	assemblyQue = ConstructQueue(1000);
 	paintingQue = ConstructQueue(1000);
 	packageQue = ConstructQueue(1000);
 	deliveryQue = ConstructQueue(1000);
 	QAQue = ConstructQueue(1000);
+
+	// your code goes here
+	// you can simulate gift request creation in here, 
+	// but make sure to launch the threads first
+	printf("HellofromPart1\n");
+	//Mutex launch
+	pthread_mutex_init(&lock, NULL); //Will be used when reaching queues : Prevention from WRONG read/write operations on the queues 
+	pthread_mutex_init(&lastLock, NULL);//Will be needed when QA task occur : Prevention from double packaging
 
 	//Thread Initialization
 	pthread_t elfAThread;
@@ -115,7 +115,7 @@ int main(int argc,char **argv){
 	pthread_create(&santaThread, NULL, Santa, NULL);
 	pthread_create(&control_thread, NULL, ControlThread, NULL);
 
-	//Thread Cancellation
+	//Thread Join
 	pthread_join(elfAThread,NULL);	
 	pthread_join(elfBThread,NULL);	
 	pthread_join(santaThread,NULL);	
@@ -126,11 +126,13 @@ int main(int argc,char **argv){
 
 void* ElfA(void *arg){
 	while(true){
+		//Packaging Task
 		Task package_task; //Packaging is prioritized, thus, lock if any packagingTask exits in the packageQue
 		pthread_mutex_lock(&lock); 
 
 		if(isEmpty(packageQue)){ //If empty lock must be released
 			pthread_mutex_unlock(&lock);
+			continue;
 		} 
 		else {
 
@@ -138,6 +140,8 @@ void* ElfA(void *arg){
 			pthread_mutex_unlock(&lock); //Release lock
 
 			pthread_sleep(1); //Do packaging job
+			//printf("%-5d%-5d%-5dA\n", package_task.ID, package_taskaaz);
+
 			package_task.package_done = true; //Set packaging field to true of Task 
 			printf("Elf-A -----> PackagingDone = %d\n", package_task.ID);
 
@@ -145,15 +149,7 @@ void* ElfA(void *arg){
 			Enqueue(deliveryQue, package_task); //Send the task to deliveryQue
 			pthread_mutex_unlock(&lock); //Release lock
 
-		} //Packaging end
-
-		pthread_mutex_lock(&lock); //Lock
-		if(!isEmpty(packageQue)){ // If package exists
-			pthread_mutex_unlock(&lock); //Release lock after checking and
-			continue; //skip iteration, look for packaging job again
-		}
-		pthread_mutex_unlock(&lock); // Else release lock and look for Painting jobs
-
+		} //Packaging End
 
 		//Painting Task
 		Task painting_task;
@@ -180,7 +176,7 @@ void* ElfA(void *arg){
 			}
 			else if (!painting_task.assembly_done || !painting_task.QA_done) { //If QA or assembly still needed
 				pthread_mutex_lock(&lastLock); //Lock for lastModified 
-				//Here this part is needed because of type 4 and type 5 gifts, since those types of gifts should be modified by both santa and either elfA or elfB but should be packaged by one of the elves. If elfA finished painting and waiting for santa(QA) to package. Since we now know what is the last task that is modified by elfA, elfB and Santa we can let the one that does his job latest do the packaging
+				//Here this part is needed because of type 4 and type 5 gifts, since those types of gifts should be modified by both santa and either elfA or elfB but should be packaged by one of the elves. If elfA finished painting and waiting for santa(QA) to finish QA. Since we now know what is the last task that is modified by elfA, elfB and Santa we can let the one that does his job latest do the packaging
 				if(lastAssembled >= lastPainted && lastQAed >= lastPainted){ //Check if
 					painting_task.assembly_done = true;
 					painting_task.QA_done = true;
@@ -199,7 +195,8 @@ void* ElfA(void *arg){
 }
 
 void* ElfB(void *arg){
-	while(true){	
+	while(true){
+		//Packaging Task	
 		Task package_task; //Packaging is prioritized, thus, package if any packagingTask exits in the packageQue
 		pthread_mutex_lock(&lock); 
 		//critical section start
@@ -222,15 +219,8 @@ void* ElfB(void *arg){
 
 			printf("Elf-B -----> PackagingDone = %d\n", package_task.ID);
 
-		} //Packaging Task 
+		} //Packaging End 
 	
-		pthread_mutex_lock(&lock); //Lock
-		if(!isEmpty(packageQue)){ // If package exists
-			pthread_mutex_unlock(&lock); //Release lock after checking and
-			continue; //skip iteration, look for packaging job again
-		}
-		pthread_mutex_unlock(&lock); // Else release lock and look for Assembly jobs
-
 		//Assembly Task
 		Task assembly_task;
 		pthread_mutex_lock(&lock); //lock
@@ -253,6 +243,7 @@ void* ElfB(void *arg){
 				pthread_mutex_lock(&lock); //lock
 				Enqueue(packageQue,assembly_task); //send to package queue
 				pthread_mutex_unlock(&lock); //release the lock
+		
 			} else if (!assembly_task.QA_done || !assembly_task.painting_done) {
 				pthread_mutex_lock(&lastLock);
 				if(lastPainted >= lastAssembled && lastQAed >= lastAssembled) {
@@ -298,12 +289,12 @@ void* Santa(void *arg){
 
 			pthread_sleep(1); //Do QA job
 			QA_task.QA_done = 1;
+			printf("HOHOHOH!! Santa QADone: %d\n", QA_task.ID);
 
 			pthread_mutex_lock(&lastLock);
 			lastQAed = QA_task.ID;
 			pthread_mutex_unlock(&lastLock);
 
-			printf("HOHOHOH!! Santa QADone: %d\n", QA_task.ID);
 
 
 			if(QA_task.painting_done && QA_task.assembly_done && QA_task.QA_done) {
@@ -405,20 +396,7 @@ void* ControlThread(void *arg){
 			pthread_mutex_unlock(&lock);
 
 		} else { // Bad children
-			
-			task.type = 1;
-			task.assembly_done = true;
-			task.painting_done = true;	
-			task.package_done = false;
-			task.delivery_done = false;
-			task.QA_done = true;
-
-			pthread_mutex_lock(&lock);
-			Enqueue(packageQue, task);
-			printf("\t\tNewGIFT-Chocolate with id: %d enqueued to package\n", t_id);	
-			pthread_mutex_unlock(&lock);
-			
-
+		
 			printf("\t\tNewGIFT- SORRY no gifts this time\n");
 		}
 
