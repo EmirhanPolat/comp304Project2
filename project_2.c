@@ -32,6 +32,7 @@ Queue *QAQue;
 Queue *deliveryQue;
 
 pthread_mutex_t lock; //Basic lock for all the queues 
+pthread_mutex_t lastLock; //Lock to identify who will do the packaging
 
 //pthread sleeper function
 int pthread_sleep (int seconds)
@@ -89,7 +90,10 @@ int main(int argc,char **argv){
 	// your code goes here
 	// you can simulate gift request creation in here, 
 	// but make sure to launch the threads first
-	printf("Hello\n");
+	
+	//Thread launch
+	pthread_mutex_init(&lock, NULL);
+	pthread_mutex_init(&lastLock, NULL);
 
 	//Initialize queues
 	assemblyQue = ConstructQueue(1000);
@@ -99,33 +103,28 @@ int main(int argc,char **argv){
 	QAQue = ConstructQueue(1000);
 
 	//CONTROL BLOK
-
-	pthread_mutex_init(&lock, NULL);
-
 	pthread_t elfAThread;
 	pthread_t elfBThread;
 	pthread_t santaThread;
 	pthread_t control_thread;
-	int sim = 0;
-	while(sim < simulationTime){
 		
-		pthread_create(&elfAThread, NULL, ElfA, NULL);
-		pthread_create(&elfBThread, NULL, ElfB, NULL);
-		pthread_create(&santaThread, NULL, Santa, NULL);
-		pthread_create(&control_thread, NULL, ControlThread, NULL);
+	pthread_create(&elfAThread, NULL, ElfA, NULL);
+	pthread_create(&elfBThread, NULL, ElfB, NULL);
+	pthread_create(&santaThread, NULL, Santa, NULL);
+	pthread_create(&control_thread, NULL, ControlThread, NULL);
+	
+	pthread_sleep(simulationTime);
+
+	pthread_cancel(elfAThread);	
+	pthread_cancel(elfBThread);	
+	pthread_cancel(santaThread);	
+	pthread_cancel(control_thread); 	
 		
-		pthread_join(elfAThread, NULL);	
-		pthread_join(elfBThread, NULL);	
-		pthread_join(santaThread, NULL);	
-		pthread_join(control_thread, NULL); 	
-		
-		sim++;
-			
-	}
 	return 0;
 }
 
 void* ElfA(void *arg){
+	while(true){
 		Task package_task; //Packaging is prioritized, thus, package if any packagingTask exits in the packageQue
 		pthread_mutex_lock(&lock); 
 		//critical section start
@@ -141,7 +140,7 @@ void* ElfA(void *arg){
 
 			pthread_sleep(1);
 			package_task.package_done = true;
-			printf("-----elfA Packaging done id = %d\n", package_task.ID);
+			printf("-------elfA PackagingDone = %d\n", package_task.ID);
 
 			pthread_mutex_lock(&lock);
 			Enqueue(deliveryQue, package_task);
@@ -160,7 +159,7 @@ void* ElfA(void *arg){
 
 			pthread_sleep(3);
 			painting_task.painting_done = true;
-			printf("elfA Painting done id = %d\n", painting_task.ID);
+			printf("-------elfA Painting done id = %d\n", painting_task.ID);
 
 			if(painting_task.assembly_done && painting_task.QA_done && painting_task.painting_done) {
 				pthread_mutex_lock(&lock);
@@ -172,12 +171,13 @@ void* ElfA(void *arg){
 			}
 		}
 
-
+	}
 
 }
 
 void* ElfB(void *arg){
-		Task package_task; //Packaging is prioritized, thus, package if any packagingTask exits in the packageQue
+	while(true){	
+	Task package_task; //Packaging is prioritized, thus, package if any packagingTask exits in the packageQue
 		pthread_mutex_lock(&lock); 
 		//critical section start
 
@@ -192,13 +192,13 @@ void* ElfB(void *arg){
 
 			pthread_sleep(1);
 			package_task.package_done = true;
-			printf("-----elfB Packaging done id = %d\n", package_task.ID);
+			printf("//++//++//elfB PackagingDone = %d\n", package_task.ID);
 
 			pthread_mutex_lock(&lock);
 			Enqueue(deliveryQue, package_task);
 			pthread_mutex_unlock(&lock);
 
-		} //Packaging end 
+		} //Packaging Task 
 
 		//Assembly Task
 		Task assembly_task;
@@ -211,7 +211,7 @@ void* ElfB(void *arg){
 
 			pthread_sleep(2);
 			assembly_task.assembly_done = true;
-			printf("elfB Assembly done id = %d\n", assembly_task.ID);
+			printf("//++//++//elfB Assembly done id = %d\n", assembly_task.ID);
 
 			if(assembly_task.QA_done && assembly_task.painting_done && assembly_task.assembly_done) {
 				pthread_mutex_lock(&lock);
@@ -224,12 +224,13 @@ void* ElfB(void *arg){
 		}
 
 
-
+	}
 
 }
 
 // manages Santa's tasks
 void* Santa(void *arg){
+	while(true){	
 		Task delivery_task;
 		pthread_mutex_lock(&lock);
 		if(isEmpty(deliveryQue)){
@@ -240,7 +241,7 @@ void* Santa(void *arg){
 
 			pthread_sleep(1);
 			delivery_task.delivery_done = true;
-			printf("HOHOHO!! Santa delivered task with id: %d\n",delivery_task.ID);
+			printf("HOHOHO!! Santa deliveryDone: %d\n",delivery_task.ID);
 		}
 		Task QA_task;
 		pthread_mutex_lock(&lock);
@@ -252,7 +253,7 @@ void* Santa(void *arg){
 
 			pthread_sleep(1);
 			QA_task.QA_done = 1;
-			printf("Santa finished QA for task %d\n", QA_task.ID);
+			printf("HOHOHOH!! Santa QADone: %d\n", QA_task.ID);
 
 			if(QA_task.painting_done && QA_task.assembly_done && QA_task.QA_done) {
 				pthread_mutex_lock(&lock);
@@ -260,11 +261,14 @@ void* Santa(void *arg){
 				pthread_mutex_unlock(&lock);
 			}
 		}
+	}
 }
 
 // the function that controls queues and output
 void* ControlThread(void *arg){
+	
 	int t_id = 1;
+	while(true){
 		pthread_sleep(1);
 
 		Task task;
@@ -282,7 +286,7 @@ void* ControlThread(void *arg){
 
 			pthread_mutex_lock(&lock);
 			Enqueue(packageQue, task);
-			printf("\tNewGIFT-Chocolate with id: %d enqueued to package\n", t_id);	
+			printf("\t\tNewGIFT-Chocolate with id: %d enqueued to package\n", t_id);	
 			pthread_mutex_unlock(&lock);
 
 		} else if(40 <= rand_gift && rand_gift <=59){ //wooden toy + chocolate
@@ -295,7 +299,7 @@ void* ControlThread(void *arg){
 
 			pthread_mutex_lock(&lock);
 			Enqueue(paintingQue, task);
-			printf("\tNewGIFT-Wood_toy gift with id: %d enqueued to paint\n", t_id);	
+			printf("\t\tNewGIFT-Wood_toy gift with id: %d enqueued to paint\n", t_id);	
 			pthread_mutex_unlock(&lock);
 
 
@@ -309,7 +313,7 @@ void* ControlThread(void *arg){
 
 			pthread_mutex_lock(&lock);
 			Enqueue(assemblyQue, task);
-			printf("\tNewGIFT-Plastic_toy gift with id: %d enqueued to assembly\n", t_id);	
+			printf("\t\tNewGIFT-Plastic_toy gift with id: %d enqueued to assembly\n", t_id);	
 			pthread_mutex_unlock(&lock);
 
 		} else if(80 <= rand_gift && rand_gift <=84){ //GS + wooden toy + chocolate
@@ -323,7 +327,7 @@ void* ControlThread(void *arg){
 			pthread_mutex_lock(&lock);
 			Enqueue(paintingQue, task);
 			Enqueue(QAQue, task);
-			printf("\tNewGIFT-GS + wood_toy gift with id: %d enqueued to QA & painting\n", t_id);	
+			printf("\t\tNewGIFT-GS + wood_toy gift with id: %d enqueued to QA & painting\n", t_id);	
 			pthread_mutex_unlock(&lock);
 
 		} else if(85 <= rand_gift && rand_gift <=89){ //GS + plastic toy + chocolate
@@ -337,15 +341,15 @@ void* ControlThread(void *arg){
 			pthread_mutex_lock(&lock);
 			Enqueue(assemblyQue, task);
 			Enqueue(QAQue, task);
-			printf("\tNewGIFT-GS + plastic_toy gift with id: %d enqueued to QA & assembly\n", t_id);	
+			printf("\t\tNewGIFT-GS + plastic_toy gift with id: %d enqueued to QA & assembly\n", t_id);	
 			pthread_mutex_unlock(&lock);
 
 		} else {
-			printf("\tNewGIFT-No gift this time\n");
+			printf("\t\tNewGIFT-No gift this time\n");
 		}
 
 
 		t_id++;
-
+	}
 
 }
