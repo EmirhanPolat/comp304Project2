@@ -91,8 +91,8 @@ int main(int argc,char **argv){
 	// your code goes here
 	// you can simulate gift request creation in here, 
 	// but make sure to launch the threads first
-
-	//Thread launch
+	printf("HellofromPart1\n");
+	//Mutex launch
 	pthread_mutex_init(&lock, NULL);
 	pthread_mutex_init(&lastLock, NULL);
 
@@ -103,23 +103,23 @@ int main(int argc,char **argv){
 	deliveryQue = ConstructQueue(1000);
 	QAQue = ConstructQueue(1000);
 
-	//CONTROL BLOK
+	//Thread Initialization
 	pthread_t elfAThread;
 	pthread_t elfBThread;
 	pthread_t santaThread;
 	pthread_t control_thread;
-
+	
+	//Thread Creation
 	pthread_create(&elfAThread, NULL, ElfA, NULL);
 	pthread_create(&elfBThread, NULL, ElfB, NULL);
 	pthread_create(&santaThread, NULL, Santa, NULL);
 	pthread_create(&control_thread, NULL, ControlThread, NULL);
 
-	pthread_sleep(simulationTime);
-
-	pthread_cancel(elfAThread);	
-	pthread_cancel(elfBThread);	
-	pthread_cancel(santaThread);	
-	pthread_cancel(control_thread); 	
+	//Thread Cancellation
+	pthread_join(elfAThread,NULL);	
+	pthread_join(elfBThread,NULL);	
+	pthread_join(santaThread,NULL);	
+	pthread_join(control_thread,NULL); 	
 
 	return 0;
 }
@@ -287,53 +287,40 @@ void* Santa(void *arg){
 			printf("HOHOHO!! Santa deliveryDone: %d\n",delivery_task.ID);
 		} //Delivery job done, BUT need to check 2 conds and may be doing it again
 
-		//This part is needed for Santa to do QA job first when one of the conditions hold
-		pthread_mutex_lock(&lock);
-		if(!isEmpty(deliveryQue) && QAQue->size < 3){ //If qa task is not > 3
-			pthread_mutex_unlock(&lock); //And deliveryQue is not empty
-			continue; //skip iteration, start new one
-		}
-		pthread_mutex_unlock(&lock); // Else release lock and look for QA jobs
-
 		//QA Task part
 		Task QA_task;
 		pthread_mutex_lock(&lock);
 		if(isEmpty(QAQue)) {
 			pthread_mutex_unlock(&lock);
 		} else {
+			QA_task = Dequeue(QAQue);
 			pthread_mutex_unlock(&lock);
-			while(QAQue->size >= 3){
+
+			pthread_sleep(1); //Do QA job
+			QA_task.QA_done = 1;
+
+			pthread_mutex_lock(&lastLock);
+			lastQAed = QA_task.ID;
+			pthread_mutex_unlock(&lastLock);
+
+			printf("HOHOHOH!! Santa QADone: %d\n", QA_task.ID);
+
+
+			if(QA_task.painting_done && QA_task.assembly_done && QA_task.QA_done) {
 				pthread_mutex_lock(&lock);
-				QA_task = Dequeue(QAQue);
+				Enqueue(packageQue, QA_task);
 				pthread_mutex_unlock(&lock);
-
-
-				pthread_sleep(1); //Do QA job
-				QA_task.QA_done = 1;
-
+			} else if (!QA_task.assembly_done || !QA_task.painting_done) {
 				pthread_mutex_lock(&lastLock);
-				lastQAed = QA_task.ID;
-				pthread_mutex_unlock(&lastLock);
-
-				printf("Santa -----> QADone: %d\n", QA_task.ID);
-
-
-				if(QA_task.painting_done && QA_task.assembly_done && QA_task.QA_done) {
+				if(lastAssembled >= lastQAed && lastPainted >= lastQAed){
+					QA_task.assembly_done = true;
+					QA_task.painting_done = true;
 					pthread_mutex_lock(&lock);
 					Enqueue(packageQue, QA_task);
 					pthread_mutex_unlock(&lock);
-				} else if (!QA_task.assembly_done || !QA_task.painting_done) {
-					pthread_mutex_lock(&lastLock);
-					if(lastAssembled >= lastQAed && lastPainted >= lastQAed){
-						QA_task.assembly_done = true;
-						QA_task.painting_done = true;
-						pthread_mutex_lock(&lock);
-						Enqueue(packageQue, QA_task);
-						pthread_mutex_unlock(&lock);
-					}
-					pthread_mutex_unlock(&lastLock);
-				}	
-			}
+				}
+				pthread_mutex_unlock(&lastLock);
+			}	
 		}
 	}
 }
@@ -417,7 +404,8 @@ void* ControlThread(void *arg){
 			printf("\t\tNewGIFT-GS + plastic_toy gift with id: %d enqueued to QA & assembly\n", t_id);	
 			pthread_mutex_unlock(&lock);
 
-		} else { // Again type 1 gift created [90, 100)
+		} else { // Bad children
+			
 			task.type = 1;
 			task.assembly_done = true;
 			task.painting_done = true;	
@@ -429,6 +417,9 @@ void* ControlThread(void *arg){
 			Enqueue(packageQue, task);
 			printf("\t\tNewGIFT-Chocolate with id: %d enqueued to package\n", t_id);	
 			pthread_mutex_unlock(&lock);
+			
+
+			printf("\t\tNewGIFT- SORRY no gifts this time\n");
 		}
 
 
