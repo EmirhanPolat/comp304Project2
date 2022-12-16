@@ -137,14 +137,14 @@ void* ElfA(void *arg){
 			
 			pthread_mutex_lock(&lock); //Lock
 			Enqueue(deliveryQue, package_task); //Send the task to deliveryQue
-			pthread_mutex_unlock(&lock); //Release lock
-		} //Packaging End
-		pthread_mutex_lock(&lock); //Check for packageQue again
-		if(!isEmpty(packageQue)) {
+			
+			if(!isEmpty(packageQue)){
+				pthread_mutex_unlock(&lock);
+				continue;
+			}
 			pthread_mutex_unlock(&lock);
-			continue;
-		}
-		pthread_mutex_unlock(&lock);
+		} //Packaging End
+		
 		//Painting Task
 		Task painting_task;
 		pthread_mutex_lock(&lock); //lock
@@ -156,23 +156,23 @@ void* ElfA(void *arg){
 
 			pthread_sleep(3); //Do painting
 			painting_task.painting_done = true; //Set painting true
+			printf("Elf-A -----> Painting done id = %d\n", painting_task.ID);
 
 			pthread_mutex_lock(&lastLock); //Lock
 			lastPainted = painting_task.ID; //Update last painted int with id of the current task
 			pthread_mutex_unlock(&lastLock); //Release 
 
-			printf("Elf-A -----> Painting done id = %d\n", painting_task.ID);
 
 			if(painting_task.assembly_done && painting_task.QA_done && painting_task.painting_done) { //If no other jobs needed for the task
 				pthread_mutex_lock(&lock); //Lock
 				Enqueue(packageQue,painting_task); //Enqueue it to the packageQue
 				pthread_mutex_unlock(&lock); //Release
 			}
-			else if (!painting_task.assembly_done || !painting_task.QA_done) { //If QA or assembly still needed
+			else if (!painting_task.QA_done) { //If QA or assembly still needed
+				//Here this part is needed because of type 4 and type 5 gifts, since those types of gifts should be modified by both santa and either elfA or elfB but 	should be packaged by one of the elves. If elfA finished painting and waiting for santa(QA) to package. By keeping the last modified item by every operator we know the last task that is modified by elfA, elfB and Santa. We first check if qa is done on the current task or not and if no, look if the last QAed item is greater or equal (meaning that its QA is done by santa) than current gift, if yes, this means that QA task actually done. So our elfA can change the qaDone flag of the task and send it to packageQue
+
 				pthread_mutex_lock(&lastLock); //Lock for lastModified 
-				//Here this part is needed because of type 4 and type 5 gifts, since those types of gifts should be modified by both santa and either elfA or elfB but should be packaged by one of the elves. If elfA finished painting and waiting for santa(QA) to package. Since we now know what is the last task that is modified by elfA, elfB and Santa we can let the one that does his job latest do the packaging
-				if(lastAssembled >= lastPainted && lastQAed >= lastPainted){ //Check if
-					painting_task.assembly_done = true;
+				if(lastQAed >= lastPainted){ //Check if
 					painting_task.QA_done = true;
 					pthread_mutex_lock(&lock);
 					Enqueue(packageQue, painting_task);
@@ -203,19 +203,19 @@ void* ElfB(void *arg){
 
 			pthread_sleep(1); //Do packaging
 			package_task.package_done = true;
+			printf("Elf-B -----> PackagingDone = %d\n", package_task.ID);
 
 			pthread_mutex_lock(&lock);
 			Enqueue(deliveryQue, package_task);
+			
+			if(!isEmpty(packageQue)){
+				pthread_mutex_unlock(&lock);
+				continue;
+			}
 			pthread_mutex_unlock(&lock);
 
-			printf("Elf-B -----> PackagingDone = %d\n", package_task.ID);
 		} //Packaging End 
-		pthread_mutex_lock(&lock); //Check for packageQue again and then go on
-		if(!isEmpty(packageQue)){
-			pthread_mutex_unlock(&lock);
-			continue;
-		}	
-		pthread_mutex_unlock(&lock);
+
 		//Assembly Task
 		Task assembly_task;
 		pthread_mutex_lock(&lock); //lock
@@ -227,21 +227,19 @@ void* ElfB(void *arg){
 
 			pthread_sleep(2); //Do assembly job
 			assembly_task.assembly_done = true;
+			printf("Elf-B -----> Assembly done id = %d\n", assembly_task.ID);
 
 			pthread_mutex_lock(&lastLock);
 			lastAssembled = assembly_task.ID;
 			pthread_mutex_unlock(&lastLock);
 
-			printf("Elf-B -----> Assembly done id = %d\n", assembly_task.ID);
-
 			if(assembly_task.QA_done && assembly_task.painting_done && assembly_task.assembly_done) { //IF all done
 				pthread_mutex_lock(&lock); //lock
 				Enqueue(packageQue,assembly_task); //send to package queue
 				pthread_mutex_unlock(&lock); //release the lock
-			} else if (!assembly_task.QA_done || !assembly_task.painting_done) {
+			} else if (!assembly_task.QA_done) {
 				pthread_mutex_lock(&lastLock);
-				if(lastPainted >= lastAssembled && lastQAed >= lastAssembled) {
-					assembly_task.painting_done = true;
+				if(lastQAed >= lastAssembled) {
 					assembly_task.QA_done = true;
 					pthread_mutex_lock(&lock);
 					Enqueue(packageQue, assembly_task);
@@ -270,17 +268,16 @@ void* Santa(void *arg){
 			pthread_sleep(1);
 			delivery_task.delivery_done = true;
 			printf("HOHOHO!! Santa deliveryDone: %d\n",delivery_task.ID);
-		} //Delivery job done, BUT need to check 2 conds and may be doing it again
 
-		
+		} //Delivery job done, BUT need to check 2 conds and may be doing it again
+	
 		//This part is needed for Santa to do QA job first when one of the conditions hold
-		pthread_mutex_lock(&lock);
-		if(!isEmpty(deliveryQue) && QAQue->size < 3){ //If qa task is not > 3
-			pthread_mutex_unlock(&lock); //And deliveryQue is not empty
-			continue; //skip iteration, start new one
+		pthread_mutex_lock(&lock);	
+		if(QAQue->size < 3 || !isEmpty(deliveryQue)){
+			pthread_mutex_unlock(&lock);
+			continue;	
 		}
-		pthread_mutex_unlock(&lock); // Else release lock and look for QA jobs
-		
+		pthread_mutex_unlock(&lock);
 
 		//QA Task part
 		Task QA_task;
@@ -288,39 +285,35 @@ void* Santa(void *arg){
 		if(isEmpty(QAQue)) {
 			pthread_mutex_unlock(&lock);
 		} else {
+			QA_task = Dequeue(QAQue);
 			pthread_mutex_unlock(&lock);
-			while(QAQue->size >= 3){
+
+
+			pthread_sleep(1); //Do QA job
+			QA_task.QA_done = 1;
+
+			pthread_mutex_lock(&lastLock);
+			lastQAed = QA_task.ID;
+			pthread_mutex_unlock(&lastLock);
+
+			printf("Santa -----> QADone: %d\n", QA_task.ID);
+
+
+			if(QA_task.painting_done && QA_task.assembly_done && QA_task.QA_done) {
 				pthread_mutex_lock(&lock);
-				QA_task = Dequeue(QAQue);
+				Enqueue(packageQue, QA_task);
 				pthread_mutex_unlock(&lock);
-
-
-				pthread_sleep(1); //Do QA job
-				QA_task.QA_done = 1;
-
+			} else if (!QA_task.assembly_done || !QA_task.painting_done) {
 				pthread_mutex_lock(&lastLock);
-				lastQAed = QA_task.ID;
-				pthread_mutex_unlock(&lastLock);
-
-				printf("Santa -----> QADone: %d\n", QA_task.ID);
-
-
-				if(QA_task.painting_done && QA_task.assembly_done && QA_task.QA_done) {
+				if(lastAssembled >= lastQAed && lastPainted >= lastQAed){
+					QA_task.assembly_done = true;
+					QA_task.painting_done = true;
 					pthread_mutex_lock(&lock);
 					Enqueue(packageQue, QA_task);
 					pthread_mutex_unlock(&lock);
-				} else if (!QA_task.assembly_done || !QA_task.painting_done) {
-					pthread_mutex_lock(&lastLock);
-					if(lastAssembled >= lastQAed && lastPainted >= lastQAed){
-						QA_task.assembly_done = true;
-						QA_task.painting_done = true;
-						pthread_mutex_lock(&lock);
-						Enqueue(packageQue, QA_task);
-						pthread_mutex_unlock(&lock);
-					}
-					pthread_mutex_unlock(&lastLock);
-				}	
-			}
+				}
+				pthread_mutex_unlock(&lastLock);
+			}	
 		}
 	}
 }
