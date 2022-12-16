@@ -147,8 +147,12 @@ void* ElfA(void *arg){
 
 			pthread_mutex_lock(&lock); //Lock
 			Enqueue(deliveryQue, package_task); //Send the task to deliveryQue
+			if(!isEmpty(packageQue)) {
+				pthread_mutex_unlock(&lock);
+				continue;
+			}
 			pthread_mutex_unlock(&lock); //Release lock
-
+				
 		} //Packaging End
 
 		//Painting Task
@@ -174,11 +178,18 @@ void* ElfA(void *arg){
 				Enqueue(packageQue,painting_task); //Enqueue it to the packageQue
 				pthread_mutex_unlock(&lock); //Release
 			}
-			else if (!painting_task.assembly_done || !painting_task.QA_done) { //If QA or assembly still needed
+			else if (!painting_task.QA_done) { //If QA or assembly still needed
+		
+			/*Here this part is needed because of type 4 and type 5 gifts, since those types of gifts 
+			should be modified by both santa and either elfA or elfB but should be packaged by one of the elves. 
+			If elfA finished painting and waiting for santa(QA) to package. 
+			By keeping the last modified item by every operator we know the last task that is modified by elfA, elfB and Santa. 
+			We first check if qa is done on the current task or not and 
+			if no, look if the last QAed item is greater or equal (meaning that its QA is done by santa) than current gift, 
+			if yes, this means that QA task actually done. So our elfA can change the qaDone flag of the task and send it to packageQue	
+			*/	
 				pthread_mutex_lock(&lastLock); //Lock for lastModified 
-				//Here this part is needed because of type 4 and type 5 gifts, since those types of gifts should be modified by both santa and either elfA or elfB but should be packaged by one of the elves. If elfA finished painting and waiting for santa(QA) to finish QA. Since we now know what is the last task that is modified by elfA, elfB and Santa we can let the one that does his job latest do the packaging
-				if(lastAssembled >= lastPainted && lastQAed >= lastPainted){ //Check if
-					painting_task.assembly_done = true;
+				if(lastQAed >= lastPainted){ //Check if
 					painting_task.QA_done = true;
 					pthread_mutex_lock(&lock);
 					Enqueue(packageQue, painting_task);
@@ -212,15 +223,19 @@ void* ElfB(void *arg){
 
 			pthread_sleep(1); //Do packaging
 			package_task.package_done = true;
-
-			pthread_mutex_lock(&lock);
-			Enqueue(deliveryQue, package_task);
-			pthread_mutex_unlock(&lock);
-
 			printf("Elf-B -----> PackagingDone = %d\n", package_task.ID);
 
+			pthread_mutex_lock(&lock); //Lock
+			Enqueue(deliveryQue, package_task); //Send the task to deliveryQue
+			
+			if(!isEmpty(packageQue)) {
+				pthread_mutex_unlock(&lock);
+				continue;
+			}
+			pthread_mutex_unlock(&lock); //Release lock
+			
 		} //Packaging End 
-	
+
 		//Assembly Task
 		Task assembly_task;
 		pthread_mutex_lock(&lock); //lock
@@ -243,11 +258,10 @@ void* ElfB(void *arg){
 				pthread_mutex_lock(&lock); //lock
 				Enqueue(packageQue,assembly_task); //send to package queue
 				pthread_mutex_unlock(&lock); //release the lock
-		
-			} else if (!assembly_task.QA_done || !assembly_task.painting_done) {
+
+			} else if (!assembly_task.QA_done) {
 				pthread_mutex_lock(&lastLock);
-				if(lastPainted >= lastAssembled && lastQAed >= lastAssembled) {
-					assembly_task.painting_done = true;
+				if(lastQAed >= lastAssembled) {
 					assembly_task.QA_done = true;
 					pthread_mutex_lock(&lock);
 					Enqueue(packageQue, assembly_task);
@@ -276,6 +290,15 @@ void* Santa(void *arg){
 			pthread_sleep(1);
 			delivery_task.delivery_done = true;
 			printf("HOHOHO!! Santa deliveryDone: %d\n",delivery_task.ID);
+			
+			pthread_mutex_lock(&lock);
+			
+			if(!isEmpty(deliveryQue)){
+				pthread_mutex_unlock(&lock);
+				continue;
+			}
+			pthread_mutex_unlock(&lock);
+			
 		} //Delivery job done, BUT need to check 2 conds and may be doing it again
 
 		//QA Task part
@@ -396,7 +419,7 @@ void* ControlThread(void *arg){
 			pthread_mutex_unlock(&lock);
 
 		} else { // Bad children
-		
+
 			printf("\t\tNewGIFT- SORRY no gifts this time\n");
 		}
 
