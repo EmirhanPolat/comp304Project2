@@ -9,6 +9,7 @@ typedef struct {
 	int ID;
 	int type;
 	// you might want to add variables here!
+	int start;
 	bool assembly_done, painting_done, package_done, delivery_done, QA_done;
 } Task;
 

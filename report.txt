@@ -1,0 +1,32 @@
+COMP304-Project2-Report
+Ahmet Emirhan Polat - 72073 - apolat19
+
+GOAL: In this project, we are required to implement a gift preparation and delivery mechanism by using synchronization and threads.
+
+HOW: Since we will have multi-threaded environment we need to make sure that it is safe and will not result in any race condition. 
+To make sure of that I have used 4 mutexes in this project. Since the operators(elves & santa) can cause overwrites and bad reads during Enqueue and Dequeue operations. 
+1-My first lock is single lock for all the queues and whoever looks at a queue need to lock the the mutex, dequeue and unlock before doing his job. 
+2-My second lock is used when type4 and type5 gifts occur. Since one of the elves and santa can do their jobs simultaneously, we need to keep every qualification lines last modified item (with gift ID). 
+3-The third lock is used when getting the exact second of the simulation (when incrementing and reading).
+4-The last lock is used when we need to do logging for every job done, I incremented the total task done count and read it when logging. The last lock is used when we need to do logging for every job done, I incremented the total task done count and read it when logging..
+
+ELF A-B packaging:
+Both elves are required to look at packaging tasks first, so I first checked if the packageQue is empty,
+if yes, release the lock and go on to assembly/painting tasks, make the corresponding task flag true and sleep for t times depending on the task..
+if no, meaning that packageQue has items in it, dequeue from packageQue release the lock, do packaging, lock-enqueue-to-deliveryQue-release the lock and check if packageQue still has items in it (if yes, start the elf function from the beggining again). This way we can make sure that elves will priotorize packaging jobs. 
+
+ELF A-B Assembly/Painting:
+For this part, we again start by checking if the queue is empty if yes go back to the beginning,
+if not lock-dequeue-release the lock and wait for t seconds for job to be done. After that make the corresponding done flag true. Modify the lastModified for that production line(again using locks (mylock#2)).
+Then if all the flags are true to be able to delivered. Elves lock-enqueue-release their tasks for Santa to deliver them. 
+The critical point is if a task requires QA and assembly/painting at the same time, this can cause double enqueueing of the same task.
+To prevent we use integer values to hold the last item that has passed through each production line. 
+If that last modified items ID is less than or equal to the last QAed item ID than the task is ready to be enqueued for the packaging line. If not, meaning that, Santa is not done with current gifts QA, ten wait for Santa do his job.
+
+Santa:
+Santa deals with delivery and QA tasks. For the first part, Santa works as the same way as elves, 
+check delvieryQue, if not empty do delivery, if empty go on with the QA jobs. But for the second part of the project. I added 2 condition checks after Santa is done checking the deliveryQue, 
+one is if QA jobs accumulated and there are more than or equal to 3 QA jobs do QA
+second is if there are no items in the deliveryQue, do QA.
+ 
+NOTE: I couldn't complete Part III, but all the other parts are working as requested.
